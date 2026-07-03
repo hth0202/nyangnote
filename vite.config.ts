@@ -39,5 +39,16 @@ export default defineConfig({
   ],
   resolve: {
     alias: { '@': path.resolve(__dirname, './src') }
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        // Firebase가 번들의 대부분을 차지 — 벤더 청크 분리로 캐싱·병렬 로드 개선
+        manualChunks: {
+          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore', 'firebase/storage'],
+          react: ['react', 'react-dom', 'react-router-dom'],
+        }
+      }
+    }
   }
 })

@@ -11,8 +11,6 @@ import {
   where,
   orderBy,
   limit,
-  Timestamp,
-  serverTimestamp,
   onSnapshot,
   type QueryConstraint,
 } from 'firebase/firestore'
@@ -143,10 +141,30 @@ export async function lookupInviteCode(code: string): Promise<CatInvite | null> 
 export async function acceptInviteCode(code: string, member: CatMember): Promise<void> {
   const invite = await lookupInviteCode(code)
   if (!invite) throw new Error('유효하지 않은 초대 코드예요')
-  const members = await getCatMembers(invite.catId)
-  if (members.length >= 6) throw new Error('보호자가 최대 인원(6명)에 도달했어요')
-  if (members.some(m => m.userId === member.userId)) throw new Error('이미 이 고양이의 보호자예요')
-  await setDoc(doc(db, 'cats', invite.catId, 'members', member.userId), stripUndefined(member))
+
+  // 아직 멤버가 아니면 보안 규칙상 멤버 목록을 읽을 수 없으므로 사전 검증은 best-effort
+  let members: CatMember[] | null = null
+  try {
+    members = await getCatMembers(invite.catId)
+  } catch {
+    members = null
+  }
+  if (members) {
+    if (members.some(m => m.userId === member.userId)) throw new Error('이미 이 고양이의 보호자예요')
+    if (members.length >= 6) throw new Error('보호자가 최대 인원(6명)에 도달했어요')
+  }
+
+  // inviteCode field is required by Firestore Rules to verify the join is legitimate
+  // role은 규칙상 caregiver만 허용되므로 클라이언트에서도 고정
+  try {
+    await setDoc(
+      doc(db, 'cats', invite.catId, 'members', member.userId),
+      stripUndefined({ ...member, role: 'caregiver', inviteCode: code })
+    )
+  } catch {
+    // 이미 멤버인 경우 create가 아닌 update가 되어 규칙이 거부함
+    throw new Error('참여에 실패했어요. 이미 보호자이거나 코드가 만료됐을 수 있어요.')
+  }
 }
 
 export async function getCatInviteCode(catId: string): Promise<CatInvite | null> {
@@ -168,7 +186,7 @@ export async function addRecord(catId: string, record: Omit<HealthRecord, 'id' |
 }
 
 export async function updateRecord(catId: string, recordId: string, data: Partial<HealthRecord>) {
-  await updateDoc(doc(db, 'cats', catId, 'records', recordId), stripUndefined({ ...data, updatedAt: now() }) as Record<string, unknown>)
+  await updateDoc(doc(db, 'cats', catId, 'records', recordId), stripUndefined({ ...data, updatedAt: now() }) as Partial<HealthRecord>)
 }
 
 export async function deleteRecord(catId: string, recordId: string) {
@@ -178,12 +196,15 @@ export async function deleteRecord(catId: string, recordId: string) {
 export function subscribeToRecords(
   catId: string,
   constraints: QueryConstraint[],
-  onData: (records: HealthRecord[]) => void
+  onData: (records: HealthRecord[]) => void,
+  onError?: (error: Error) => void
 ) {
-  const q = query(collection(db, 'cats', catId, 'records'), ...constraints, orderBy('recordedAt', 'desc'))
-  return onSnapshot(q, snap => {
-    onData(snap.docs.map(d => d.data() as HealthRecord))
-  })
+  const q = query(collection(db, 'cats', catId, 'records'), orderBy('recordedAt', 'desc'), ...constraints)
+  return onSnapshot(
+    q,
+    snap => onData(snap.docs.map(d => d.data() as HealthRecord)),
+    err => onError?.(err)
+  )
 }
 
 export async function getRecentRecords(catId: string, limitCount = 50): Promise<HealthRecord[]> {
@@ -196,5 +217,3 @@ export async function getRecentRecords(catId: string, limitCount = 50): Promise<
   )
   return snap.docs.map(d => d.data() as HealthRecord)
 }
-
-void Timestamp; void serverTimestamp

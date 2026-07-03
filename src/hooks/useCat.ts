@@ -11,7 +11,19 @@ export function useSelectedCat() {
 
   useEffect(() => {
     if (!catId) { setLoading(false); return }
-    getCat(catId).then(c => { setCat(c); setLoading(false) })
+    let cancelled = false
+    getCat(catId)
+      .then(c => { if (!cancelled) setCat(c) })
+      .catch(err => {
+        // 삭제됐거나 접근 권한이 없는 고양이 — 선택 해제해서 무한 로딩 방지
+        console.error('고양이 조회 실패:', err)
+        if (!cancelled) {
+          localStorage.removeItem(SELECTED_CAT_KEY)
+          setCat(null)
+        }
+      })
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [catId])
 
   const selectCat = (id: string) => {
@@ -28,8 +40,18 @@ export function useCatList(userId: string | null) {
 
   useEffect(() => {
     if (!userId) { setLoading(false); return }
-    getCatsByMember(userId).then(c => { setCats(c); setLoading(false) })
+    let cancelled = false
+    getCatsByMember(userId)
+      .then(c => { if (!cancelled) setCats(c) })
+      .catch(err => console.error('고양이 목록 조회 실패:', err))
+      .finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true }
   }, [userId])
 
-  return { cats, loading, refetch: () => getCatsByMember(userId!).then(setCats) }
+  return {
+    cats,
+    loading,
+    refetch: () =>
+      getCatsByMember(userId!).then(setCats).catch(err => console.error('고양이 목록 조회 실패:', err)),
+  }
 }

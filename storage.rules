@@ -3,11 +3,16 @@ rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
     match /cats/{catId}/records/{recordId}/{photoId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null
+      // 해당 고양이의 보호자(멤버)만 접근 가능 — Firestore 멤버십 교차 검증
+      function isMember() {
+        return firestore.exists(/databases/(default)/documents/cats/$(catId)/members/$(request.auth.uid));
+      }
+
+      allow read: if request.auth != null && isMember();
+      allow write: if request.auth != null && isMember()
         && request.resource.size < 10 * 1024 * 1024  // max 10MB
         && request.resource.contentType.matches('image/.*');
-      allow delete: if request.auth != null;
+      allow delete: if request.auth != null && isMember();
     }
   }
 }

@@ -11,6 +11,7 @@ export function DateTimeInput({ value, onChange, label }: DateTimeInputProps) {
       <input
         type="datetime-local"
         value={value}
+        max={toLocalDateTimeString()}
         onChange={e => onChange(e.target.value)}
         className="w-full px-4 py-3 bg-gray-100 rounded-2xl text-text-primary text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
       />

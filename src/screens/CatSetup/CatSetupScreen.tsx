@@ -21,17 +21,26 @@ export function CatSetupScreen({ user, onCreated }: Props) {
   const [sex, setSex] = useState<'male' | 'female' | 'unknown'>('unknown')
   const [neutered, setNeutered] = useState<boolean | undefined>(undefined)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
   const navigate = useNavigate()
 
   const handleCreate = async () => {
     if (!name.trim()) return
     setLoading(true)
-    const id = await createCat(
-      { name: name.trim(), ownerId: user.uid, birthDate: birthDate || undefined, sex, neutered },
-      { displayName: user.displayName ?? '알 수 없음', email: user.email ?? '', photoURL: user.photoURL ?? undefined }
-    )
-    onCreated(id)
-    navigate('/')
+    setError('')
+    try {
+      const id = await createCat(
+        { name: name.trim(), ownerId: user.uid, birthDate: birthDate || undefined, sex, neutered },
+        { displayName: user.displayName ?? '알 수 없음', email: user.email ?? '', photoURL: user.photoURL ?? undefined }
+      )
+      onCreated(id)
+      navigate('/')
+    } catch (e) {
+      console.error('고양이 등록 실패:', e)
+      setError('등록에 실패했어요. 네트워크 상태를 확인하고 다시 시도해 주세요.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -103,6 +112,8 @@ export function CatSetupScreen({ user, onCreated }: Props) {
             </div>
           </div>
         </div>
+
+        {error && <p className="text-sm text-error text-center">{error}</p>}
 
         <Button size="lg" onClick={handleCreate} loading={loading} disabled={!name.trim()}>
           등록하기

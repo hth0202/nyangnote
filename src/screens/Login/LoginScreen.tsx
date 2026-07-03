@@ -1,7 +1,22 @@
+import { useState } from 'react'
 import { useAuth } from '@/hooks/useAuth'
 
 export function LoginScreen() {
   const { signIn } = useAuth()
+  const [error, setError] = useState('')
+
+  const handleSignIn = async () => {
+    setError('')
+    try {
+      await signIn()
+    } catch (e) {
+      // 사용자가 팝업을 직접 닫은 경우는 에러로 취급하지 않음
+      const code = (e as { code?: string }).code
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') return
+      console.error('로그인 실패:', e)
+      setError('로그인에 실패했어요. 잠시 후 다시 시도해 주세요.')
+    }
+  }
 
   return (
     <div className="min-h-dvh bg-app-bg flex flex-col items-center justify-center px-6">
@@ -22,7 +37,7 @@ export function LoginScreen() {
         <div className="w-full bg-white rounded-3xl p-5 flex flex-col gap-3 shadow-sm">
           {[
             { emoji: '⚡', text: '빠른 기록 — 탭 한 번으로' },
-            { emoji: '🏥', text: '병원용 요약 화면 제공' },
+            { emoji: '📅', text: '기간별 타임라인으로 한눈에' },
             { emoji: '👥', text: '공동 보호자와 함께 기록' },
             { emoji: '📵', text: '오프라인에서도 기록 가능' },
           ].map(f => (
@@ -35,9 +50,10 @@ export function LoginScreen() {
 
         {/* Sign in */}
         <div className="w-full flex flex-col gap-3">
+          {error && <p className="text-sm text-error text-center">{error}</p>}
           <button
             type="button"
-            onClick={signIn}
+            onClick={handleSignIn}
             className="w-full flex items-center justify-center gap-3 bg-white text-gray-700 font-semibold py-4 rounded-2xl border border-gray-200 shadow-sm hover:bg-gray-50 active:scale-95 transition-all"
           >
             <svg width="20" height="20" viewBox="0 0 24 24">

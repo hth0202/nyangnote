@@ -37,6 +37,17 @@ const APPETITE_CHIPS: { label: string; value: NonNullable<FoodDetails['appetite'
 const REACTION_TAGS = ['잘 먹음', '천천히 먹음', '남김', '냄새만 맡음', '거부함']
 const SYMPTOM_TAGS = ['구토', '헛구역질', '설사', '기침', '침 흘림']
 
+// 저장 값은 영문 코드, 표시만 한국어
+const UNIT_OPTIONS: { value: FoodUnit; label: string }[] = [
+  { value: 'g', label: 'g' },
+  { value: 'ml', label: 'ml' },
+  { value: 'cup', label: '컵' },
+  { value: 'can', label: '캔' },
+  { value: 'pouch', label: '파우치' },
+  { value: 'spoon', label: '스푼' },
+  { value: 'bowl', label: '그릇' },
+]
+
 interface InitialValues { recordedAt: string; note?: string; details: FoodDetails }
 
 interface Props {
@@ -66,6 +77,7 @@ export function FoodForm({ onSave, loading, onDirty, initialValues }: Props) {
 
   const toggleTag = (tag: string, list: string[], setter: (v: string[]) => void) => {
     setter(list.includes(tag) ? list.filter(t => t !== tag) : [...list, tag])
+    dirty()
   }
 
   const parseServedAmount = () => {
@@ -101,7 +113,7 @@ export function FoodForm({ onSave, loading, onDirty, initialValues }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={setRecordedAt} />
+      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={v => { setRecordedAt(v); dirty() }} />
 
       <SectionLabel>사료 종류</SectionLabel>
       <div className="flex flex-wrap gap-2">
@@ -113,26 +125,27 @@ export function FoodForm({ onSave, loading, onDirty, initialValues }: Props) {
       <SectionLabel>급여량</SectionLabel>
       <div className="flex flex-wrap gap-2">
         {chips.map(c => (
-          <Chip key={c} label={c} selected={servedChip === c} onClick={() => { setServedChip(c) }} />
+          <Chip key={c} label={c} selected={servedChip === c} onClick={() => { setServedChip(c); dirty() }} />
         ))}
-        <Chip label="직접 입력" selected={servedChip === 'custom'} onClick={() => setServedChip('custom')} />
+        <Chip label="직접 입력" selected={servedChip === 'custom'} onClick={() => { setServedChip('custom'); dirty() }} />
       </div>
       {servedChip === 'custom' && (
         <div className="flex gap-2">
           <input
             type="number"
+            min="0"
             value={servedCustom}
-            onChange={e => setServedCustom(e.target.value)}
+            onChange={e => { setServedCustom(e.target.value); dirty() }}
             placeholder="양"
             className="flex-1 px-4 py-3 bg-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
           />
           <select
             value={servedUnit}
-            onChange={e => setServedUnit(e.target.value as FoodUnit)}
+            onChange={e => { setServedUnit(e.target.value as FoodUnit); dirty() }}
             className="px-3 py-3 bg-gray-100 rounded-2xl text-sm focus:outline-none"
           >
-            {(['g', 'ml', '컵', '캔', '파우치', '스푼', '그릇'] as const).map(u => (
-              <option key={u} value={u}>{u}</option>
+            {UNIT_OPTIONS.map(u => (
+              <option key={u.value} value={u.value}>{u.label}</option>
             ))}
           </select>
         </div>
@@ -141,14 +154,14 @@ export function FoodForm({ onSave, loading, onDirty, initialValues }: Props) {
       <SectionLabel>먹은 양</SectionLabel>
       <div className="flex flex-wrap gap-2">
         {EATEN_CHIPS.map(c => (
-          <Chip key={c.value} label={c.label} selected={eatenRatio === c.value} onClick={() => setEatenRatio(c.value)} />
+          <Chip key={c.value} label={c.label} selected={eatenRatio === c.value} onClick={() => { setEatenRatio(c.value); dirty() }} />
         ))}
       </div>
 
       <SectionLabel>식욕 상태</SectionLabel>
       <div className="flex flex-wrap gap-2">
         {APPETITE_CHIPS.map(c => (
-          <Chip key={c.value} label={c.label} selected={appetite === c.value} onClick={() => setAppetite(c.value)} />
+          <Chip key={c.value} label={c.label} selected={appetite === c.value} onClick={() => { setAppetite(c.value); dirty() }} />
         ))}
       </div>
 
@@ -166,7 +179,7 @@ export function FoodForm({ onSave, loading, onDirty, initialValues }: Props) {
         ))}
       </div>
 
-      <TextArea label="메모" value={note} onChange={setNote} placeholder="추가 메모 (선택)" />
+      <TextArea label="메모" value={note} onChange={v => { setNote(v); dirty() }} placeholder="추가 메모 (선택)" />
 
       <Button size="lg" onClick={handleSave} loading={loading} disabled={eatenRatio === null}>
         저장하기

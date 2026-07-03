@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { useSelectedCat, useCatList } from '@/hooks/useCat'
@@ -43,7 +43,38 @@ export default function App() {
 
   const { add, update, remove } = useRecords(cat?.id ?? null)
 
-  const handleDelete = (record: HealthRecord) => remove(record.id)
+  // 선택된 고양이가 없는데 목록이 있으면 첫 번째 고양이 자동 선택
+  useEffect(() => {
+    if (!catLoading && !catsLoading && !cat && cats.length > 0) selectCat(cats[0].id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cat, cats, catLoading, catsLoading])
+
+  const handleDelete = (record: HealthRecord) => {
+    // 오프라인 퍼시스턴스: 서버 ack를 기다리지 않음 (로컬 캐시에 즉시 반영됨)
+    remove(record.id).catch(err => console.error('기록 삭제 실패:', err))
+  }
+
+  const handleQuickAdd = async (type: 'food' | 'water' | 'toilet', toiletType?: 'urine' | 'feces') => {
+    const recordedAt = new Date().toISOString()
+    let details: FoodDetails | WaterDetails | ToiletDetails
+    if (type === 'food') {
+      details = { foodType: 'dry', servedAmount: 1, servedUnit: 'bowl', eatenRatio: 100 }
+    } else if (type === 'water') {
+      details = { waterLevel: 'normal' }
+    } else {
+      details = { toiletType: toiletType ?? 'urine', amount: 'normal' }
+    }
+    // await하지 않음 — 오프라인이면 서버 ack가 안 와서 저장 피드백이 영영 안 뜨기 때문
+    add({
+      type,
+      catId: cat!.id,
+      userId: user!.uid,
+      userDisplayName: user!.displayName ?? '알 수 없음',
+      recordedAt,
+      details,
+      isQuick: true,
+    } as Omit<HealthRecord, 'id' | 'createdAt' | 'updatedAt'>).catch(err => console.error('빠른 기록 저장 실패:', err))
+  }
 
   if (authLoading || catLoading || catsLoading) {
     return (
@@ -73,11 +104,7 @@ export default function App() {
     )
   }
 
-  if (!cat && cats.length > 0) {
-    selectCat(cats[0].id)
-    return null
-  }
-
+  // 자동 선택 useEffect가 처리할 때까지 대기
   if (!cat) return null
 
   const handleSave = async (
@@ -86,7 +113,8 @@ export default function App() {
     recordedAt: string,
     note: string
   ) => {
-    await add({
+    // 오프라인에서도 즉시 저장 완료 처리 — Firestore가 로컬 캐시에 기록 후 자동 동기화
+    add({
       type,
       catId: cat.id,
       userId: user.uid,
@@ -94,7 +122,7 @@ export default function App() {
       recordedAt,
       details,
       note: note || undefined,
-    } as Omit<HealthRecord, 'id' | 'createdAt' | 'updatedAt'>)
+    } as Omit<HealthRecord, 'id' | 'createdAt' | 'updatedAt'>).catch(err => console.error('기록 저장 실패:', err))
   }
 
   const handleUpdate = async (
@@ -103,13 +131,14 @@ export default function App() {
     recordedAt: string,
     note: string
   ) => {
-    await update(recordId, { details, recordedAt, note: note || undefined })
+    // 폼에서 수정하는 순간 '빠른 기록(내용 미입력)' 상태 해제 — 실제 값이 입력된 일반 기록이 됨
+    update(recordId, { details, recordedAt, note: note || undefined, isQuick: false }).catch(err => console.error('기록 수정 실패:', err))
   }
 
   return (
     <RecordSheetProvider onOpen={openSheet}>
       <Routes>
-        <Route path="/" element={<HomeScreen cat={cat} user={user} openSheet={openSheet} onEdit={openEdit} onDelete={handleDelete} />} />
+        <Route path="/" element={<HomeScreen cat={cat} user={user} openSheet={openSheet} onQuickAdd={handleQuickAdd} onEdit={openEdit} onDelete={handleDelete} />} />
         <Route path="/timeline" element={<TimelineScreen cat={cat} onEdit={openEdit} onDelete={handleDelete} />} />
         <Route path="/settings" element={<SettingsScreen cat={cat} user={user} />} />
         <Route path="/guardian" element={<GuardianScreen cat={cat} user={user} />} />

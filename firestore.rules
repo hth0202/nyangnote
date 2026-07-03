@@ -17,42 +17,64 @@ service cloud.firestore {
         return get(/databases/$(database)/documents/cats/$(catId)/members/$(request.auth.uid)).data.role == 'owner';
       }
 
-      allow read: if request.auth != null && isMember();
-      allow create: if request.auth != null;
+      // ownerId 동등 조건을 앞에 둬서 where('ownerId','==',uid) list 쿼리도 통과
+      allow read: if request.auth != null
+        && (resource.data.ownerId == request.auth.uid || isMember());
+      // 본인을 ownerId로 지정한 고양이만 생성 가능
+      allow create: if request.auth != null
+        && request.resource.data.ownerId == request.auth.uid;
       allow update: if request.auth != null && isOwner();
       allow delete: if request.auth != null && isOwner();
 
       match /members/{memberId} {
         allow read: if request.auth != null && isMember();
-        allow write: if request.auth != null && isOwner();
-        // Allow self-join on invite accept
-        allow create: if request.auth != null && request.auth.uid == memberId;
-      }
-
-      match /invites/{inviteId} {
-        allow read: if request.auth != null;
-        allow create: if request.auth != null && isOwner();
-        allow update: if request.auth != null && (isOwner() || resource.data.status == 'pending');
+        // 오너는 멤버 관리(제거 등) 가능
+        allow update, delete: if request.auth != null && isOwner();
+        // 본인 문서만 생성 가능하며 userId 필드도 본인이어야 함
+        allow create: if request.auth != null
+          && request.auth.uid == memberId
+          && request.resource.data.userId == memberId
+          && (
+            // 1) 고양이 등록 시 오너가 자기 멤버 문서 생성 (role은 owner 고정)
+            (
+              get(/databases/$(database)/documents/cats/$(catId)).data.ownerId == request.auth.uid
+              && request.resource.data.role == 'owner'
+            )
+            // 2) 유효한 초대 코드로 참여 — 반드시 caregiver 역할 (오너 권한 상승 차단)
+            || (
+              request.resource.data.role == 'caregiver'
+              && request.resource.data.keys().hasAll(['inviteCode'])
+              && exists(/databases/$(database)/documents/inviteCodes/$(request.resource.data.inviteCode))
+              && get(/databases/$(database)/documents/inviteCodes/$(request.resource.data.inviteCode)).data.catId == catId
+            )
+          );
       }
 
       match /records/{recordId} {
         allow read: if request.auth != null && isMember();
-        allow create: if request.auth != null && isMember();
-        allow update: if request.auth != null && (
-          isOwner() || (isMember() && resource.data.userId == request.auth.uid)
-        );
-        allow delete: if request.auth != null && isOwner();
+        // 기록자(userId)는 본인이어야 함 — 기록자 사칭 방지
+        allow create: if request.auth != null && isMember()
+          && request.resource.data.userId == request.auth.uid;
+        // 모든 보호자가 공동으로 기록을 수정/삭제 (앱 UI와 동일한 권한 모델)
+        allow update, delete: if request.auth != null && isMember();
       }
+    }
+
+    // collectionGroup('members') 쿼리 — 자신이 멤버로 등록된 문서만 조회 가능
+    match /{path=**}/members/{memberId} {
+      allow read: if request.auth != null && resource.data.userId == request.auth.uid;
     }
 
     // Invite codes — top-level collection for code-based lookup
     match /inviteCodes/{code} {
-      // Any authenticated user can look up a code
+      // Any authenticated user can look up a code to join
       allow read: if request.auth != null;
-      // Any authenticated user can create (owner check is enforced by app logic)
-      allow create: if request.auth != null;
-      // Allow status updates (accept / expire / cancel) by any authenticated user
-      allow update: if request.auth != null;
+      // Only the owner of the referenced cat can create an invite code
+      allow create: if request.auth != null
+        && get(/databases/$(database)/documents/cats/$(request.resource.data.catId)/members/$(request.auth.uid)).data.role == 'owner';
+      // Only the owner of the referenced cat can update or delete
+      allow update, delete: if request.auth != null
+        && get(/databases/$(database)/documents/cats/$(resource.data.catId)/members/$(request.auth.uid)).data.role == 'owner';
     }
   }
 }

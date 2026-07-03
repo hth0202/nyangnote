@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { format } from 'date-fns'
 import { ko } from 'date-fns/locale'
 import { useRecords, useLastRecord } from '@/hooks/useRecords'
@@ -5,14 +6,21 @@ import { AppHeader } from '@/components/layout/AppHeader'
 import { TabBar } from '@/components/layout/TabBar'
 import { OfflineBanner } from '@/components/layout/OfflineBanner'
 import { KebabMenu } from '@/components/ui/KebabMenu'
+import { SwipeableCard } from '@/components/ui/SwipeableCard'
+import { RecordDetailModal } from '@/components/records/RecordDetailModal'
 import { recordInfo, WATER_LABEL } from '@/lib/recordDisplay'
 import type { Cat, RecordType, FoodDetails, WaterDetails, ToiletDetails, WeightDetails, HealthRecord } from '@/types'
 import type { User } from 'firebase/auth'
 
-const QUICK_BUTTONS: { type: RecordType; label: string; emoji: string }[] = [
+type QuickType = 'food' | 'water' | 'toilet'
+
+const QUICK_BUTTONS: { type: QuickType; label: string; emoji: string }[] = [
   { type: 'food', label: '사료', emoji: '🍚' },
   { type: 'water', label: '음수', emoji: '💧' },
   { type: 'toilet', label: '화장실', emoji: '🚽' },
+]
+
+const DETAIL_BUTTONS: { type: RecordType; label: string; emoji: string }[] = [
   { type: 'symptom', label: '증상', emoji: '🌡️' },
   { type: 'mood', label: '기분', emoji: '😸' },
   { type: 'weight', label: '체중', emoji: '⚖️' },
@@ -64,39 +72,48 @@ function RecentRecordItem({
   record,
   onEdit,
   onDelete,
+  onTap,
 }: {
   record: HealthRecord
   onEdit: (r: HealthRecord) => void
   onDelete: (r: HealthRecord) => void
+  onTap: (r: HealthRecord) => void
 }) {
   const info = recordInfo(record)
   const sub = info.detail ? `${info.main} · ${info.detail}` : info.main
 
   return (
-    <div className={[
-      'bg-white rounded-2xl px-4 py-3 flex items-center gap-2.5 shadow-sm border',
-      info.alert ? 'border-red-200 bg-red-50/20' : info.warning ? 'border-amber-200' : 'border-transparent',
-    ].join(' ')}>
-      <span className="text-xl shrink-0">{TYPE_EMOJI[record.type]}</span>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-1.5">
-          <p className="text-sm font-semibold text-text-primary">{TYPE_LABEL[record.type]}</p>
-          {info.alert && (
-            <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-px rounded-full font-semibold leading-none shrink-0 my-0.5">
-              주의
-            </span>
-          )}
-          {!info.alert && info.warning && (
-            <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-px rounded-full font-semibold leading-none shrink-0 my-0.5">
-              확인
-            </span>
-          )}
+    <SwipeableCard onDelete={() => onDelete(record)} onTap={() => onTap(record)}>
+      <div className={[
+        'bg-white px-4 py-3 flex items-center gap-2.5 border',
+        info.quick ? 'border-transparent' : info.alert ? 'border-red-200 bg-red-50/20' : info.warning ? 'border-amber-200' : 'border-transparent',
+      ].join(' ')}>
+        <span className={['text-xl shrink-0', info.quick ? 'opacity-40' : ''].join(' ')}>{TYPE_EMOJI[record.type]}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <p className="text-sm font-semibold text-text-primary">{TYPE_LABEL[record.type]}</p>
+            {info.quick && (
+              <span className="text-[10px] bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded-full font-semibold shrink-0 m-0.5">
+                빠른 기록
+              </span>
+            )}
+            {!info.quick && info.alert && (
+              <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-semibold shrink-0 m-0.5">
+                주의
+              </span>
+            )}
+            {!info.quick && !info.alert && info.warning && (
+              <span className="text-[10px] bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-full font-semibold shrink-0 m-0.5">
+                확인
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-text-secondary truncate mt-[1px]">{sub}</p>
         </div>
-        <p className="text-xs text-text-secondary truncate mt-[1px]">{sub}</p>
+        <span className="text-xs text-text-secondary shrink-0">{timeAgo(record.recordedAt)}</span>
+        <KebabMenu onEdit={() => onEdit(record)} onDelete={() => onDelete(record)} />
       </div>
-      <span className="text-xs text-text-secondary shrink-0">{timeAgo(record.recordedAt)}</span>
-      <KebabMenu onEdit={() => onEdit(record)} onDelete={() => onDelete(record)} />
-    </div>
+    </SwipeableCard>
   )
 }
 
@@ -104,11 +121,28 @@ interface Props {
   cat: Cat
   user: User
   openSheet: (type?: RecordType) => void
+  onQuickAdd: (type: QuickType, toiletType?: 'urine' | 'feces') => Promise<void>
   onEdit: (record: HealthRecord) => void
   onDelete: (record: HealthRecord) => void
 }
 
-export function HomeScreen({ cat, user: _user, openSheet, onEdit, onDelete }: Props) {
+export function HomeScreen({ cat, user: _user, openSheet, onQuickAdd, onEdit, onDelete }: Props) {
+  const [savedType, setSavedType] = useState<QuickType | null>(null)
+  const [toiletExpanded, setToiletExpanded] = useState(false)
+  const [detailRecord, setDetailRecord] = useState<HealthRecord | null>(null)
+
+  const handleQuick = async (type: QuickType) => {
+    await onQuickAdd(type)
+    setSavedType(type)
+    setTimeout(() => setSavedType(null), 1200)
+  }
+
+  const handleToiletSelect = async (toiletType: 'urine' | 'feces') => {
+    setToiletExpanded(false)
+    await onQuickAdd('toilet', toiletType)
+    setSavedType('toilet')
+    setTimeout(() => setSavedType(null), 1200)
+  }
   const { records } = useRecords(cat.id)
 
   const lastFood = useLastRecord(records, 'food')
@@ -147,15 +181,16 @@ export function HomeScreen({ cat, user: _user, openSheet, onEdit, onDelete }: Pr
 
       {/* Summary cards */}
       <div className="px-5 grid grid-cols-2 gap-2.5 mb-6">
+        {/* 빠른 기록의 디폴트값은 자리표시자이므로 실제 값처럼 표시하지 않음 */}
         <SummaryCard
           emoji="🍚" label="마지막 식사"
           value={lastFood ? timeAgo(lastFood.recordedAt) : '기록 없음'}
-          sub={lastFood ? `먹은 양 ${EATEN_RATIO_LABEL[(lastFood.details as FoodDetails).eatenRatio]}` : undefined}
+          sub={lastFood ? (lastFood.isQuick ? '빠른 기록' : `먹은 양 ${EATEN_RATIO_LABEL[(lastFood.details as FoodDetails).eatenRatio]}`) : undefined}
         />
         <SummaryCard
           emoji="💧" label="마지막 음수"
           value={lastWater ? timeAgo(lastWater.recordedAt) : '기록 없음'}
-          sub={lastWater ? WATER_LABEL[(lastWater.details as WaterDetails).waterLevel] : undefined}
+          sub={lastWater ? (lastWater.isQuick ? '빠른 기록' : WATER_LABEL[(lastWater.details as WaterDetails).waterLevel]) : undefined}
         />
         <SummaryCard
           emoji="🚽" label="마지막 화장실"
@@ -169,19 +204,94 @@ export function HomeScreen({ cat, user: _user, openSheet, onEdit, onDelete }: Pr
         />
       </div>
 
-      {/* Quick record buttons */}
+      {/* Quick record buttons — 버튼 누르는 순간 현재 시각으로 즉시 저장 */}
       <div className="px-5">
         <SectionLabel>빠른 기록</SectionLabel>
         <div className="grid grid-cols-3 gap-2.5">
-          {QUICK_BUTTONS.map(b => (
+          {QUICK_BUTTONS.map(b => {
+            const saved = savedType === b.type
+
+            if (b.type === 'toilet') {
+              if (saved) {
+                return (
+                  <div key="toilet" className="flex flex-col items-center gap-1.5 pt-4 pb-3.5 rounded-2xl bg-primary-50 border border-primary-200">
+                    <span className="text-2xl leading-none">✓</span>
+                    <span className="text-[11px] font-semibold text-primary-500">저장됨</span>
+                  </div>
+                )
+              }
+              if (toiletExpanded) {
+                return (
+                  <div key="toilet" className="flex flex-col justify-center gap-2 py-3 bg-white rounded-2xl shadow-sm border border-primary-100">
+                    <span className="text-[10px] font-semibold text-center text-gray-400">화장실 🚽</span>
+                    <div className="flex gap-1.5 px-2">
+                      <button
+                        type="button"
+                        onClick={() => handleToiletSelect('urine')}
+                        className="flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl bg-sky-50 active:scale-95 transition-all"
+                      >
+                        <span className="text-base leading-none">💧</span>
+                        <span className="text-[10px] font-semibold text-sky-600">소변</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleToiletSelect('feces')}
+                        className="flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl bg-amber-50 active:scale-95 transition-all"
+                      >
+                        <span className="text-base leading-none">💩</span>
+                        <span className="text-[10px] font-semibold text-amber-600">대변</span>
+                      </button>
+                    </div>
+                  </div>
+                )
+              }
+              return (
+                <button
+                  key="toilet"
+                  type="button"
+                  onClick={() => setToiletExpanded(true)}
+                  className="flex flex-col items-center gap-1.5 pt-4 pb-3.5 bg-white rounded-2xl shadow-sm active:scale-95 transition-all"
+                >
+                  <span className="text-2xl leading-none">🚽</span>
+                  <span className="text-[11px] font-semibold text-text-primary">화장실</span>
+                </button>
+              )
+            }
+
+            return (
+              <button
+                key={b.type}
+                type="button"
+                onClick={() => handleQuick(b.type)}
+                disabled={saved}
+                className={[
+                  'flex flex-col items-center gap-1.5 pt-4 pb-3.5 rounded-2xl shadow-sm transition-all active:scale-95',
+                  saved ? 'bg-primary-50 border border-primary-200' : 'bg-white',
+                ].join(' ')}
+              >
+                <span className="text-2xl leading-none">{saved ? '✓' : b.emoji}</span>
+                <span className={['text-[11px] font-semibold', saved ? 'text-primary-500' : 'text-text-primary'].join(' ')}>
+                  {saved ? '저장됨' : b.label}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Detail record buttons — 폼 열기 */}
+      <div className="px-5 mt-4">
+        <SectionLabel>기타 기록</SectionLabel>
+        <div className="flex gap-2.5">
+          {DETAIL_BUTTONS.map(b => (
             <button
               key={b.type}
               type="button"
               onClick={() => openSheet(b.type)}
-              className="flex flex-col items-center gap-1.5 pt-4 pb-3.5 bg-white rounded-2xl shadow-sm active:scale-95 transition-all"
+              className="flex-1 flex flex-col items-center gap-1.5 py-3 bg-white rounded-2xl shadow-sm border border-divider active:scale-95 transition-all"
             >
-              <span className="text-2xl leading-none">{b.emoji}</span>
-              <span className="text-[11px] font-semibold text-text-primary">{b.label}</span>
+              <span className="text-xl leading-none">{b.emoji}</span>
+              <span className="text-[11px] font-semibold text-text-secondary">{b.label}</span>
             </button>
           ))}
         </div>
@@ -193,13 +303,21 @@ export function HomeScreen({ cat, user: _user, openSheet, onEdit, onDelete }: Pr
           <SectionLabel>최근 기록</SectionLabel>
           <div className="flex flex-col gap-2">
             {records.slice(0, 3).map(r => (
-              <RecentRecordItem key={r.id} record={r} onEdit={onEdit} onDelete={onDelete} />
+              <RecentRecordItem key={r.id} record={r} onEdit={onEdit} onDelete={onDelete} onTap={setDetailRecord} />
             ))}
           </div>
         </div>
       )}
 
       <TabBar />
+
+      {detailRecord && (
+        <RecordDetailModal
+          record={detailRecord}
+          onClose={() => setDetailRecord(null)}
+          onEdit={r => { setDetailRecord(null); onEdit(r) }}
+        />
+      )}
     </div>
   )
 }

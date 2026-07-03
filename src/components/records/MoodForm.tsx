@@ -44,8 +44,11 @@ export function MoodForm({ onSave, loading, onDirty, initialValues }: Props) {
   const [behaviorTags, setBehaviorTags] = useState<string[]>(iv?.behaviorTags ?? [])
   const [note, setNote] = useState(initialValues?.note ?? '')
 
+  const dirty = () => onDirty?.()
+
   const toggleTag = (tag: string) => {
     setBehaviorTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
+    dirty()
   }
 
   const handleSave = () => {
@@ -55,7 +58,7 @@ export function MoodForm({ onSave, loading, onDirty, initialValues }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={setRecordedAt} />
+      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={v => { setRecordedAt(v); dirty() }} />
 
       <SectionLabel>기분</SectionLabel>
       <div className="grid grid-cols-2 gap-2">
@@ -99,7 +102,7 @@ export function MoodForm({ onSave, loading, onDirty, initialValues }: Props) {
         ))}
       </div>
 
-      <TextArea label="메모" value={note} onChange={setNote} placeholder="추가 메모 (선택)" />
+      <TextArea label="메모" value={note} onChange={v => { setNote(v); dirty() }} placeholder="추가 메모 (선택)" />
 
       <Button size="lg" onClick={handleSave} loading={loading} disabled={!mood || !activityLevel}>
         저장하기

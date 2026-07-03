@@ -655,6 +655,18 @@ TabBar, AppHeader에서 기존 이모지 제거 후 SVG 컴포넌트로 교체
 
 ---
 
+### ~07:00 — GitHub 초기 커밋 및 푸시
+
+**요청**: "git에 커밋하고 푸시하고 싶어. https://github.com/hth0202/nyangnote 페이지도 만들었어"
+
+- `git init` → 브랜치명 `main`으로 설정
+- `git remote add origin https://github.com/hth0202/nyangnote.git`
+- `.env.local` (Firebase 키) 제외 확인 후 전체 스테이징
+- 커밋: "feat: 냥노트 초기 커밋" (60 files, 13,225 insertions)
+- `git push -u origin main` 완료
+
+---
+
 ### ~06:20 — updateRecord undefined 필드 오류 수정
 
 **요청**: "Function updateDoc() called with invalid data. Unsupported field value: undefined (found in field details.waterAmountMl)"
@@ -662,3 +674,382 @@ TabBar, AppHeader에서 기존 이모지 제거 후 SVG 컴포넌트로 교체
 **원인**: `updateRecord`에서 `stripUndefined` 없이 그대로 `updateDoc` 호출 → `waterAmountMl` 등 선택 필드가 `undefined`일 때 Firestore 에러 발생. `addRecord`는 이미 `stripUndefined` 적용돼 있었으나 `updateRecord`만 누락.
 
 **수정**: `src/lib/db.ts` `updateRecord` — `stripUndefined()` 감싸서 저장 전 undefined 필드 제거
+
+---
+
+## 2026-07-01
+
+### 보안 감사 및 취약점 수정
+
+**요청**: "혹시 외부에서 보안 침입받을 우려 없는지 꼼꼼하게 확인해줘"
+
+**발견된 취약점 3건 (Critical)**:
+
+1. **`cats/{catId}/members` create 규칙 미흡** — `request.auth.uid == memberId`만 체크하므로, catId를 아는 인증 사용자가 초대 코드 없이 자기 자신을 아무 고양이의 보호자로 추가 가능했음.
+
+2. **`inviteCodes` create 무제한** — 누구나 임의의 catId를 지목해 가짜 초대 코드 생성 가능. 이를 이용해 위의 취약점과 조합하면 원하는 고양이에 가입 가능.
+
+3. **`inviteCodes` update 무제한** — 인증된 사용자라면 누구나 타인의 초대 코드 문서를 수정할 수 있었음.
+
+**수정 내용**:
+
+- `firestore.rules` — `members create`:
+  - 고양이 오너가 최초 멤버 문서 생성하는 경우(`cat.ownerId == request.auth.uid`)는 허용
+  - 그 외에는 `inviteCode` 필드 필수, 해당 코드가 실제로 존재하고 `catId`가 일치해야만 허용
+
+- `firestore.rules` — `inviteCodes`:
+  - `create`: 해당 catId 고양이의 오너만 가능 (Firestore Rules 레벨 강제)
+  - `update / delete`: 동일, 오너만 가능
+
+- `src/types/index.ts` — `CatMember`에 `inviteCode?: string` 필드 추가 (Rules 검증용)
+
+- `src/lib/db.ts` — `acceptInviteCode`: 멤버 문서 저장 시 `inviteCode: code` 포함 (Rules가 이 값으로 검증)
+
+**안전 확인 항목 (이상 없음)**:
+- Firebase API 키: `.env.local` gitignore 처리, 소스코드에 하드코딩 없음 ✅
+- XSS: React 자동 이스케이프, `dangerouslySetInnerHTML` 없음 ✅
+- NoSQL injection: Firestore 타입 SDK 사용, 해당 없음 ✅
+- `stripUndefined`: 모든 Firestore 쓰기에 적용됨 ✅
+
+**주의사항**: 수정된 `firestore.rules`를 Firebase Console → Firestore → 규칙 탭에서 수동으로 배포해야 실제 적용됨.
+
+---
+
+### 빠른 기록 즉시 저장 + 섹션 분리
+
+**요청**: 빠른 기록에 사료/음수/화장실만 남기고 버튼 누르는 즉시 현재 시각(KST)으로 저장. 나머지(증상/기분/체중)는 별도 "기타 기록" 섹션으로 분리해 폼 열기.
+
+**변경 내용**:
+- `src/screens/Home/HomeScreen.tsx`
+  - `QUICK_BUTTONS`를 `food/water/toilet` 3개로 축소, 누르면 즉시 `onQuickAdd()` 호출
+  - 버튼 누른 후 1.2초간 ✓ + "저장됨" 표시 후 원래 상태 복귀 (`savedType` state)
+  - `DETAIL_BUTTONS`(증상/기분/체중) 별도 섹션 추가 — 기존처럼 폼 시트 열기
+  - Props에 `onQuickAdd: (type: QuickType) => Promise<void>` 추가
+- `src/App.tsx`
+  - `handleQuickAdd` 함수 추가: 현재 시각 + 타입별 기본값으로 즉시 `add()` 호출
+    - 사료: `{ foodType: 'dry', servedAmount: 1, servedUnit: 'bowl', eatenRatio: 100 }`
+    - 음수: `{ waterLevel: 'normal' }`
+    - 화장실: `{ toiletType: 'urine', amount: 'normal' }`
+  - `HomeScreen`에 `onQuickAdd={handleQuickAdd}` 전달
+
+### 화장실 버튼 소변/대변 선택 depth 추가
+
+**요청**: 화장실 빠른 기록 버튼 누르면 소변/대변 한 단계 선택 UI 표시 후 즉시 저장
+
+**변경 내용**:
+- `HomeScreen.tsx`
+  - `toiletExpanded` state 추가
+  - `handleToiletSelect(toiletType)` 함수 추가: 선택 즉시 저장 + ✓ 피드백
+  - 화장실 버튼 3단계 렌더: 기본 → 확장(💧소변/💩대변 선택) → ✓저장됨
+  - `onQuickAdd` 시그니처 변경: `(type, toiletType?) => Promise<void>`
+- `App.tsx`
+  - `handleQuickAdd(type, toiletType?)`: 화장실 기록 시 선택한 `toiletType` 사용 (기본값 'urine')
+
+### 빠른 기록 디폴트값 제거 + 시각적 구분
+
+**요청**: 빠른 기록에 디폴트값 없애고, 일반 기록과 구분되게 표시
+
+**변경 내용**:
+- `src/types/index.ts` — `BaseRecord`에 `isQuick?: boolean` 추가
+- `src/lib/recordDisplay.ts`
+  - `RecordInfo`에 `quick?: boolean` 추가
+  - `recordInfo()`에서 `r.isQuick === true`이면 detail 없이 `{ main: '빠른 기록', quick: true }` 반환
+  - 화장실 빠른 기록은 사용자가 선택한 값이 있으므로 `{ main: '소변'|'대변', quick: true }` 반환
+- `src/App.tsx` — `handleQuickAdd`에 `isQuick: true` 포함
+- `src/screens/Timeline/TimelineScreen.tsx` — `info.quick`이면 회색 "빠른 기록" 배지, 텍스트 회색 처리
+- `src/screens/Home/HomeScreen.tsx` — `RecentRecordItem`에 동일 배지 + 이모지 opacity 40% 처리
+
+### 배지 스타일 통일 + 빠른 기록 카드 내용 텍스트 변경
+
+**요청**: 배지 상하좌우 패딩 2px 통일, 마진/패딩 모든 배지 동일하게, 빠른 기록 카드 내용 '내용을 입력해 주세요'로 변경
+
+**변경 내용**:
+- `TimelineScreen.tsx`, `HomeScreen.tsx` — 배지 공통 클래스 통일: `py-px leading-none my-0.5` → `py-0.5 shrink-0 m-0.5` (replace_all)
+- `recordDisplay.ts` — 빠른 기록 main 텍스트 `'빠른 기록'` → `'내용을 입력해 주세요'`, 화장실 빠른 기록도 detail에 동일 안내 추가
+
+### RecordOverlay 슬라이드 애니메이션 제거
+
+**요청**: 기록 유형 선택 오버레이에서 뒤로 갈 때 바텀시트처럼 밑으로 내려가는 애니메이션 제거. 새 창 레이어처럼 즉시 표시/숨김 처리.
+
+**변경 내용**: `src/components/records/RecordOverlay.tsx`
+- `transition-transform duration-300 ease-out`, `translate-y-0 / translate-y-full` 슬라이드 로직 제거
+- 닫힘 애니메이션 대기를 위해 쓰던 `visible` state + setTimeout 제거
+- `if (!open) return null`로 단순화
+
+### 카드 상세 모달 + 스와이프 삭제
+
+**요청**: 카드 탭 → 상세 모달, 카드 왼쪽 슬라이드 → 삭제 (얼럿 포함)
+
+**생성 파일**:
+- `src/components/ui/SwipeableCard.tsx` — 슬라이드 제스처 + 뒤에 삭제 버튼 표시, ConfirmDialog 포함. offsetRef로 이벤트 핸들러 내 offset 최신값 추적. 탭과 스와이프 구분 (moved ref)
+- `src/components/records/RecordDetailModal.tsx` — 바텀시트 형태 상세 모달. 타입별 필드 전부 표시 (Row 컴포넌트 + Tags 컴포넌트). 빠른 기록은 화장실 종류만 표시, 나머지는 수정 안내. "수정하기" 버튼으로 바로 편집 이동
+
+**수정 파일**:
+- `TimelineScreen.tsx` — expand 기능 제거, SwipeableCard + RecordDetailModal 연결, onTap prop 추가
+- `HomeScreen.tsx` — RecentRecordItem에 SwipeableCard + RecordDetailModal 연결, onTap prop 추가
+
+**카드 스타일 변경**: SwipeableCard가 `rounded-2xl overflow-hidden shadow-sm` 담당 → 내부 카드 div에서 rounded/shadow 제거
+
+---
+
+## 2026-07-03
+
+### 전체 점검 — 보안 / UX / 안정성·성능 일괄 수정
+
+**요청**: "히스토리와 실제 파일을 검토해서 ① 보안상 불안한 부분 해결 ② UI/UX 직관성·편의성 확인 ③ 빠르고 완벽한 앱을 위한 추가 확인 후 수정까지 완료"
+
+#### ① 보안 수정 (`firestore.rules`, `storage.rules`)
+
+**발견된 취약점**:
+
+1. **[Critical] 초대 코드 가입 시 오너 권한 상승 가능** — members create 규칙이 `role` 필드를 검증하지 않아, 초대 코드로 가입하면서 `role: 'owner'`를 지정하면 고양이 삭제·보호자 제거 등 오너 권한 전체 탈취 가능했음.
+   - 수정: 초대 코드 가입은 `role == 'caregiver'`만 허용, 오너 셋업 경로는 `role == 'owner'` 강제. `userId` 필드도 본인(uid)과 일치해야 함.
+   - `src/lib/db.ts` `acceptInviteCode`도 `role: 'caregiver'` 강제 저장.
+
+2. **[Medium] `cats` create에 ownerId 검증 없음** — 인증만 되면 타인의 uid를 `ownerId`로 지정한 고양이 문서 생성 가능했음. → `request.resource.data.ownerId == request.auth.uid` 강제.
+
+3. **[Medium] 기록 작성자(userId) 위조 가능** — records create가 `userId` 필드를 검증하지 않아 다른 보호자 명의로 기록 생성 가능했음. → `request.resource.data.userId == request.auth.uid` 강제.
+
+4. **[Medium] 미사용 레거시 `cats/{catId}/invites` 규칙** — `status == 'pending'`이면 아무 인증 사용자나 update 가능한 규칙이 남아 있었음 (초대는 top-level `inviteCodes`로 이전됨). → 블록 전체 제거.
+
+5. **[Medium] `storage.rules` 전면 개방** — 인증만 되면 아무 고양이의 사진이나 읽기/쓰기/삭제 가능했음. → Firestore 교차 검증(`firestore.exists`)으로 해당 고양이 멤버만 접근 가능하게 수정. (Storage는 아직 미사용이지만 선제 수정)
+
+**규칙과 앱 쿼리 불일치 수정 (기능 결함 — 규칙 배포 시 앱이 깨지는 문제)**:
+
+- `getCatsByMember`의 `where('ownerId','==',uid)` list 쿼리: `allow read`에 `resource.data.ownerId == request.auth.uid` 조건 추가 (list 쿼리에서 증명 가능한 조건).
+- `collectionGroup('members')` 쿼리: 대응하는 규칙이 아예 없어 항상 거부 → `match /{path=**}/members/{memberId}`에 "자기 userId 문서만 read" 규칙 추가.
+- 초대 참여 시 비멤버가 `getCatMembers`를 호출해 permission denied → `acceptInviteCode`에서 사전 검증(중복/6명 제한)을 best-effort로 변경 (읽기 실패 시 규칙 검증에 위임), 실패 시 한국어 에러 메시지.
+- members에 대한 오너의 포괄적 `write` 규칙을 `update, delete`로 축소 (create는 검증된 경로만).
+- records `update/delete`를 "오너 또는 작성자" → **모든 보호자**로 변경: UI(케밥 메뉴·스와이프 삭제)가 모든 보호자에게 수정/삭제를 노출하므로 권한 모델을 UI와 일치시킴 (가족 공동 기록 모델).
+
+> ⚠️ **`firestore.rules`와 `storage.rules` 모두 Firebase Console에서 다시 배포해야 적용됨.**
+
+#### ② UX 수정
+
+- **오프라인 저장 무한 스피너 해결** (`src/App.tsx`): Firestore 오프라인 퍼시스턴스에서 `setDoc` promise는 서버 ack까지 resolve되지 않음 → 오프라인에서 기록 저장 시 스피너가 영영 안 끝나고, 빠른 기록 ✓ 피드백도 안 떴음. 저장/수정/삭제를 낙관적(optimistic) 처리로 변경 — await 제거, 로컬 캐시 기록 즉시 완료 표시, 실패는 console 로깅. 오프라인 입력 허용이라는 기획 의도와 일치.
+- **보호자 제거 확인 다이얼로그** (`GuardianScreen`): "제거" 탭 즉시 삭제되던 것 → `ConfirmDialog`로 "OO님을 보호자에서 제거할까요?" 확인 후 실행.
+- **공유 시트 취소 시 에러 방지**: `navigator.share` 취소(AbortError)가 unhandled rejection이던 것 try/catch로 무시 처리.
+- **클립보드 폴백**: HTTP(비보안 컨텍스트, 예: 폰에서 `http://IP:5175` 테스트) 환경에서 `navigator.clipboard` 미지원 → textarea + `execCommand('copy')` 폴백 추가.
+- **JoinScreen 코드 확인 에러 처리**: `lookupInviteCode` 실패(오프라인 등) 시 "확인 중..."에 멈추던 것 → try/catch/finally + 안내 메시지.
+- **초대 코드 생성/보호자 제거 실패 시 인라인 에러 메시지** (`actionError`) 표시.
+
+#### ③ 안정성·성능 수정
+
+- **무한 로딩 방지** (`src/hooks/useCat.ts`): 선택된 고양이가 삭제됐거나 접근 권한이 없으면 `getCat`이 reject → 앱이 "불러오는 중..."에서 영영 안 넘어가던 문제. catch 시 localStorage 선택 해제 + 언마운트 가드(cancelled) 추가. `useCatList`도 동일하게 catch/finally 보강.
+- **기록 구독 에러 핸들러** (`src/hooks/useRecords.ts`, `src/lib/db.ts`): `onSnapshot`에 error 콜백 추가 — 권한 에러 시 loading 해제.
+- **기록 구독 limit(500)** (`useRecords`): 기존엔 전체 기록을 무제한 구독 → 기록이 쌓일수록 초기 로딩 저하. 최근 500건으로 제한.
+- **렌더 중 setState 제거** (`src/App.tsx`): `if (!cat && cats.length > 0) selectCat(...)`을 렌더 본문에서 호출하던 것 → `useEffect`로 이동 (React 렌더 순수성 위반 해결).
+- **타임라인 날짜 파싱** (`TimelineScreen`): `new Date('yyyy-MM-dd')`는 UTC 자정으로 해석돼 음수 타임존에서 날짜가 하루 밀림 → `T00:00:00` 붙여 로컬 자정으로 파싱.
+- **기존 타입 오류 수정** (`src/lib/db.ts` `updateRecord`): `as Record<string, unknown>` 캐스트가 `tsc` 실패 유발 → `as Partial<HealthRecord>`로 수정 (타입 체크 통과).
+- **번들 코드 스플리팅** (`vite.config.ts`): 단일 916KB 청크 → `manualChunks`로 firebase(574KB)/react(49KB)/앱(290KB) 분리. 벤더 캐싱·병렬 로드 개선.
+- `recordDisplay.ts` 불필요 코드 정리 (`tags: undefined` 삼항, 중복 ternary).
+
+**검증**: `tsc --noEmit` 통과, `npm run build` 성공 (PWA 포함).
+
+---
+
+### 빠른 기록 표시 통일 + 날짜 이동(date picker) + 수정 후 안내 문구 잔류 버그 수정
+
+**요청**:
+1. 빠른 기록이 카드에선 '내용을 입력해 주세요'인데 상단 요약 카드에선 디폴트값이 그대로 표시되는 불일치 — 직관적·안정적인 방향으로 통일
+2. 홈/타임라인 모두 다른 날짜로 이동 가능하게 + date picker
+3. 빠른 기록을 수정해도 상세 바텀시트에 '수정에서 상세 내용을 입력해 주세요'가 계속 뜨는 버그
+
+**1. 빠른 기록 표시 통일 — "발생 사실만 기록된 상태" 모델로 확정**
+
+빠른 기록의 저장된 디폴트값(사료: 건식·1그릇·전부 / 음수: 평소만큼 / 화장실: 보통)은 자리표시자일 뿐이므로, 어디에서도 실제 값처럼 보여주지 않는 방향으로 통일. (반대로 디폴트값을 다 보여주는 방향은 사용자가 실제로 입력하지 않은 값을 사실처럼 표시하게 되고, 향후 통계 기능에 가짜 값이 섞이는 문제가 있어 배제)
+
+- `src/screens/Home/HomeScreen.tsx` — 요약 카드: `lastFood.isQuick`/`lastWater.isQuick`이면 sub를 "먹은 양 전부"/"평소만큼" 대신 **'빠른 기록'**으로 표시. 화장실 종류(소변/대변)는 사용자가 직접 선택한 실제 데이터이므로 유지. 체중은 빠른 기록이 없어 해당 없음.
+- 타임라인/기록 카드·상세 모달의 기존 '내용을 입력해 주세요' + '빠른 기록' 배지는 그대로 유지 (이제 요약 카드와 의미가 일치)
+
+**3. 수정 후에도 '빠른 기록' 상태가 남던 버그** (1번과 연계)
+
+- 원인: 수정 저장 시 `isQuick` 플래그를 지우지 않아 recordInfo/상세 모달이 계속 빠른 기록으로 취급
+- `src/App.tsx` `handleUpdate` — 업데이트 페이로드에 `isQuick: false` 포함. 폼에서 수정하는 순간 일반 기록으로 전환되어 카드·요약·상세 모달 전부 실제 값 표시
+
+**2. 홈/타임라인 날짜 이동 + date picker**
+
+- `src/components/ui/DateNav.tsx` (신규) — 공용 날짜 내비게이션
+  - `‹ [📅 오늘 · 7월 3일] ›` 구조, 가운데 버튼 위에 투명 `<input type="date">`를 겹쳐 탭하면 네이티브 date picker가 바로 열림 (`showPicker()` 브라우저 호환 이슈 없는 방식)
+  - `max=오늘` — 미래 날짜 선택/이동 불가, 오늘이면 › 비활성
+  - `clearable` prop: ✕ 버튼으로 날짜 해제(전체 기간) — 타임라인용
+  - 전체 기간 상태에서 ‹ 누르면 어제부터 탐색 시작
+- `src/screens/Home/HomeScreen.tsx`
+  - `selectedDate` state 추가, 헤더 아래 DateNav 배치 (홈은 날짜 해제 불가 — 항상 특정 날짜)
+  - 헤더: "오늘의 기록" + 날짜 subtitle → `"${cat.name} 건강 기록"` (과거 날짜 조회 시 '오늘' 표기가 틀리는 문제)
+  - 주의/확인 칩 + 기록 리스트가 선택한 날짜 기준으로 필터링
+  - "최근 기록 3건" 섹션 → **"오늘 기록" / "M월 d일 기록"** 섹션으로 변경, 해당 날짜의 전체 기록 표시, 없으면 "이 날짜에는 기록이 없어요" 빈 상태 표시
+  - 요약 카드(마지막 식사/음수/화장실/체중)는 날짜와 무관한 '현재 상태 보드'이므로 항상 전체 기준 최신값 유지
+- `src/screens/Timeline/TimelineScreen.tsx`
+  - `selectedDate: Date | null` state (기본 null = 전체 기간)
+  - DateNav(clearable) 를 유형 필터 탭 위에 배치
+  - 유형 필터와 날짜 필터 동시 적용
+
+**검증**: `tsc --noEmit` 통과, `npm run build` 성공.
+
+---
+
+### 홈 날짜 이동 롤백 + 타임라인 기간(범위) 선택으로 개편
+
+**요청**:
+1. 홈 화면은 기록에 가까우니 날짜 이동 불필요 — 홈만 롤백
+2. 타임라인: date picker 탭 영역이 너무 좁고 한정적 → 중앙 날짜 텍스트 탭하면 뜨게. 특정 날짜뿐 아니라 **범위(기간)** 선택 지원. 해제(✕) 버튼이 생길 때 중앙 UI가 옆으로 밀리는 현상 제거
+
+**1. 홈 화면 롤백** (`src/screens/Home/HomeScreen.tsx`)
+
+- DateNav·selectedDate 제거, 헤더 원복 (`"${cat.name} 오늘의 기록"` + 날짜 subtitle)
+- 주의/확인 칩 오늘 기준 원복, "최근 기록" 최신 3건 섹션 원복
+- 직전 작업의 **빠른 기록 요약 카드 통일 표시('빠른 기록' sub)는 유지** (롤백 대상 아님)
+
+**2. DateNav 전면 개편** (`src/components/ui/DateNav.tsx` 재작성)
+
+- API 변경: `date: Date | null` → `range: { start: Date; end: Date } | null` (null = 전체 기간, 하루 = start=end)
+- **탭 영역 문제 해결**: 투명 native input 오버레이 방식 폐기 (데스크톱에서 캘린더 아이콘 부분만 picker가 열리던 원인) → 중앙 pill 전체가 버튼이고, 탭하면 **BottomSheet "기간 선택"** 이 열림
+- 바텀시트 구성:
+  - 빠른 선택: 오늘 / 최근 7일 / 최근 30일
+  - 시작일·종료일 date input (미래 날짜 불가, 시작>종료면 자동 스왑, 한쪽만 입력하면 하루로 처리)
+  - "전체 기간" / "적용" 버튼. 적용 전까지는 draft 상태로만 유지
+- **밀림 현상 해결**: 별도 ✕ 버튼(4번째 요소) 제거 → 해제 버튼을 중앙 pill **내부** 우측의 작은 원형 아이콘으로 이동. 요소 개수가 변하지 않아 `justify-center` 레이아웃이 그대로 유지됨
+- ‹ › 이동 단위: 선택된 기간 길이만큼 창 이동 (하루면 ±1일, 7일 범위면 ±7일). 오늘을 넘어가면 기간 길이를 유지한 채 오늘 기준으로 클램프. 전체 기간 상태에서 ‹ 누르면 어제부터 탐색 시작
+- 중앙 라벨: "전체 기간" / "오늘 · 7월 3일" / "M월 d일 EEEE" / "M월 d일 – M월 d일"
+
+**3. 타임라인 적용** (`src/screens/Timeline/TimelineScreen.tsx`)
+
+- `selectedDate` → `range: DateRange | null`, `startOfDay(start) ≤ recordedAt ≤ endOfDay(end)` 범위 필터
+- 유형 필터와 동시 적용 유지
+
+**검증**: `tsc --noEmit` 통과, `npm run build` 성공.
+
+---
+
+### 노션식 캘린더 범위 선택 + 헤더 컴포넌트화 (디자인 시스템 정비)
+
+**요청**:
+1. 시작일/종료일을 input으로 따로 입력하는 게 아니라 노션처럼 캘린더에서 기간을 선택 (오늘/최근 7일/최근 30일 프리셋은 유지)
+2. 홈/타임라인 헤더가 컴포넌트로 통일되지 않아 화면 전환 시 설정 아이콘·폰트가 위아래로 움직임 — 전 화면 점검 후 필요한 부분 컴포넌트화, 디자인 시스템 정교화
+
+**1. 노션식 RangeCalendar** (`src/components/ui/DateNav.tsx` 재작성)
+
+- 시작일/종료일 date input 2개 제거 → 바텀시트 안에 **월 단위 캘린더** 렌더
+- 선택 방식: 첫 탭 = 시작일, 두 번째 탭 = 종료일 (앞 날짜 탭하면 자동 정렬), 세 번째 탭 = 새 선택 시작
+- 범위 시각화: 시작·종료일 초록 원(primary-500), 사이 날짜 연초록 밴드(primary-50), 시작/끝 셀은 half-gradient로 원과 밴드가 자연스럽게 연결
+- 월 이동 ‹ › (미래 달 비활성), 미래 날짜 선택 불가, 오늘 날짜는 초록 볼드 표시
+- 캘린더 아래 현재 선택 표시("7월 1일 – 7월 3일"), 적용 버튼은 선택 전 비활성
+- 프리셋(오늘/최근 7일/최근 30일)은 즉시 적용 유지
+
+**2. 헤더 컴포넌트화 + 디자인 시스템 정비**
+
+점검 결과: 홈(subtitle 있음)과 타임라인(없음)의 AppHeader 높이가 달라 화면 전환 시 설정 아이콘·타이틀이 상하로 점프. 설정/공동 보호자/참여 화면은 각자 인라인 헤더 + 폰트 의존 '‹' 텍스트 백버튼 사용 (pt-6 pb-6 vs pt-6 pb-4 등 제각각).
+
+- `src/components/layout/AppHeader.tsx` — **min-h-[92px] 고정**: subtitle 유무와 무관하게 타이틀 y좌표·설정 아이콘 위치·아래 콘텐츠 시작점이 모든 탭 화면에서 동일. subtitle을 타이틀 위 → 아래로 이동 (타이틀 기준선 통일)
+- `src/components/layout/PageHeader.tsx` (신규) — 서브 화면 공용 헤더 (뒤로가기 + 타이틀, min-h-[72px], SVG 아이콘). `SettingsScreen`·`GuardianScreen`의 인라인 헤더를 교체
+- `src/components/ui/Icons.tsx` — 아이콘 세트 확장: `IconChevronLeft`/`IconChevronRight`/`IconCalendar`/`IconClose` 추가. 화면마다 흩어져 있던 인라인 SVG·'‹' 텍스트 글리프를 공용 아이콘으로 통일:
+  - JoinScreen 백버튼 '‹' 텍스트 → `IconChevronLeft`
+  - RecordOverlay 백버튼 인라인 SVG → `IconChevronLeft`
+  - DateNav의 화살표·캘린더·닫기 인라인 SVG → 공용 아이콘
+
+**검증**: `tsc --noEmit` 통과, `npm run build` 성공.
+
+---
+
+### 기간 시트 버튼 재배치 + 데스크톱(맥) 스와이프·케밥 메뉴 수정
+
+**요청**:
+1. 바텀시트의 '전체 기간' 버튼이 적용 버튼 옆에 있어 어색함 — 오늘/최근 7일/최근 30일 프리셋과 같은 줄로 이동
+2. 맥에서 스와이프가 안 되고, 케밥(⋮) 버튼을 눌러도 수정/삭제 드롭다운이 아예 안 뜸
+
+**1. DateNav 바텀시트** (`src/components/ui/DateNav.tsx`)
+
+- '전체 기간'을 프리셋 줄로 이동 → `오늘 / 최근 7일 / 최근 30일 / 전체 기간` 4버튼 grid (grid-cols-4)
+- 푸터는 '적용' 단독 full-width 버튼으로 단순화
+
+**2. 케밥 드롭다운이 안 뜨던 원인** (`src/components/ui/KebabMenu.tsx` 재작성)
+
+- **원인**: SwipeableCard 래퍼의 `overflow-hidden`이 드롭다운(absolute)을 잘라냄 — 데스크톱뿐 아니라 모바일에서도 사실상 안 보이는 상태였음. 또한 카드의 transform이 stacking context를 만들어 뒤 카드에 가려지는 문제도 잠재
+- **수정**: 드롭다운을 `createPortal`로 `document.body`에 fixed 포지션으로 렌더 — 클리핑·z-index 문제 원천 차단
+  - 버튼 위치(getBoundingClientRect) 기준 우측 정렬, 화면 하단 공간 부족 시 위로 펼침, 좌우 8px 안전 마진
+  - 외부 클릭(mousedown+touchstart)·스크롤·리사이즈 시 자동 닫힘
+
+**3. 맥(데스크톱) 스와이프 지원** (`src/components/ui/SwipeableCard.tsx` 재작성)
+
+- **원인**: touch 이벤트(onTouchStart/Move/End)만 처리해 마우스 드래그 무시
+- **수정**: Pointer Events로 전환 — 터치·마우스 통합 처리
+  - 가로 축 확정 시에만 `setPointerCapture` → 요소 밖으로 나가도 드래그 유지, 세로 스크롤은 `touch-action: pan-y`로 브라우저에 위임
+  - 캡처 중이 아닐 때만 pointerleave에서 상태 정리 (캡처 중 조기 종료 방지)
+  - 드래그 후 click 이벤트는 기존 moved 가드로 탭과 구분 유지
+
+**검증**: `tsc --noEmit` 통과, `npm run build` 성공.
+
+---
+
+### 삭제 얼럿 카드 갇힘 수정 + 스와이프 즉시 삭제 얼럿
+
+**요청**:
+1. 케밥으로 삭제할 때 삭제 얼럿이 카드 안에 갇혀서 표시됨
+2. 스와이프 → 삭제 버튼 누르는 2단계가 아니라, 스와이프하면 바로 삭제 얼럿이 뜨게
+
+**1. 얼럿 갇힘 원인** (`src/components/ui/ConfirmDialog.tsx`)
+
+- **원인**: `position: fixed`는 조상에 `transform`이 있으면 뷰포트가 아닌 그 조상을 기준으로 배치됨(CSS containing block 규칙). SwipeableCard의 슬라이딩 div가 항상 `translateX` transform을 갖고 있어서, 그 안에 렌더되는 ConfirmDialog(케밥 삭제·스와이프 삭제)가 카드 크기에 갇혔던 것
+- **수정**: ConfirmDialog를 `createPortal(document.body)`로 렌더 — 모든 사용처(케밥, 스와이프, RecordOverlay, Guardian)가 한 번에 해결
+
+**2. 스와이프 UX 변경** (`src/components/ui/SwipeableCard.tsx`)
+
+- 릴리즈 시 임계값(REVEAL의 45%)을 넘었으면 → 삭제 버튼 노출 대기 없이 **즉시 ConfirmDialog 표시**
+- 뒤의 빨간 삭제 영역은 버튼 → 시각적 피드백 전용(pointer-events-none)으로 변경
+- 취소하면 카드가 원위치로 복귀, 삭제하면 그대로 삭제
+
+**검증**: `tsc --noEmit` 통과, `npm run build` 성공.
+
+---
+
+### 삭제 얼럿 버튼 클릭 시 상세 바텀시트가 같이 뜨는 버그 수정
+
+**요청**: 삭제 얼럿에서 삭제/취소 어느 쪽을 눌러도 해당 카드의 상세 바텀시트가 같이 열림
+
+**원인**: React portal의 이벤트는 DOM 트리가 아니라 **React 컴포넌트 트리**를 따라 버블링됨. 케밥 메뉴가 SwipeableCard의 children(슬라이딩 div) 안에 렌더되므로, 케밥의 ConfirmDialog(portal) 버튼 클릭이 React 트리를 타고 슬라이딩 div의 onClick(handleClick)까지 전파 → `moved=false`·`offset=0` 상태라 onTap() 실행 → 상세 모달 오픈. 삭제 후에는 이미 지워진 기록의 상세가 뜨는 셈이었음.
+
+**수정**: `src/components/ui/ConfirmDialog.tsx` — 루트 컨테이너에 `onClick`/`onPointerDown` `stopPropagation()` 추가. 얼럿 내부의 모든 클릭(버튼·배경)이 카드로 전파되지 않음. KebabMenu 드롭다운 버튼은 이미 stopPropagation 처리돼 있어 얼럿만 문제였음.
+
+**검증**: `tsc --noEmit` 통과, `npm run build` 성공.
+
+---
+
+### 최종 전체 점검 — 폼·화면·코드 일괄 수정
+
+**요청**: 모든 기능, 화면, 코드를 최종 점검하고 수정할 부분 수정
+
+**발견·수정 내역**:
+
+1. **[데이터 버그] FoodForm 직접 입력 단위 값 불일치**
+   - `<select>`가 한국어 라벨('컵', '캔', '파우치'…)을 그대로 value로 저장 → chip 입력의 영문 코드(`can`, `bowl`)와 섞여 데이터 오염. 수정 모드에서도 select 값 미매칭
+   - `UNIT_OPTIONS` value/label 분리로 수정 (저장은 영문 코드, 표시는 한국어)
+
+2. **[UX] 폼 dirty 추적 대거 누락 — 입력 유실 위험**
+   - 뒤로가기 확인 다이얼로그("입력한 내용이 저장되지 않아요")가 dirty일 때만 뜨는데, 6개 폼 대부분의 입력이 dirty를 표시하지 않았음 (사료: 급여량·먹은 양·식욕·태그·메모 / 음수: 정량·메모 / 화장실: 횟수·굳기·상태·메모 / 기분: 행동 태그·메모 / 증상: 심각도·구토 상세·메모 / 체중: 측정 방법·메모 / 전 폼: 날짜·시간)
+   - 모든 입력 경로에 `dirty()` 연결 — 이제 뭐든 입력하면 뒤로가기 시 확인 다이얼로그 표시
+
+3. **[UX] 미래 날짜/시간 기록 가능 문제**
+   - `DateTimeInput`에 `max={현재 시각}` 기본 적용 (기록은 과거·현재만 가능)
+   - FoodForm·WaterForm 직접 입력 number에 `min="0"` 추가
+
+4. **[안정성] CatSetupScreen 등록 실패 시 무한 로딩**
+   - `handleCreate`에 try/catch/finally + 인라인 에러 메시지 추가
+
+5. **[안정성] LoginScreen 로그인 에러 미처리**
+   - 팝업 차단·네트워크 오류 시 unhandled rejection → try/catch + 에러 메시지. 사용자가 팝업을 직접 닫은 경우(`auth/popup-closed-by-user`)는 에러로 취급하지 않음
+
+6. **[정합성] 로그인 화면 미구현 기능 홍보 문구**
+   - "🏥 병원용 요약 화면 제공"(2차 버전 기능) → "📅 기간별 타임라인으로 한눈에"로 교체
+
+7. **[정리] 죽은 코드 제거**
+   - `QuickRecordSheet.tsx` 삭제 (RecordOverlay로 대체된 후 미사용)
+   - `useTodayRecords` 훅 제거 (미사용)
+   - `db.ts`의 미사용 import(`Timestamp`, `serverTimestamp`)와 `void` 트릭 제거
+
+8. **[UX 디테일] 타임라인 빈 상태 메시지**
+   - 필터·기간이 걸려 있으면 "기록이 없어요" → "조건에 맞는 기록이 없어요"로 구분
+
+**이상 없음 확인 항목**: TabBar·OfflineBanner·RecordSheetContext·Onboarding·main.tsx 구조, Chip/Button/TextArea 컴포넌트, console.log·TODO 잔재 없음, '‹' 텍스트 글리프 전부 제거됨
+
+**검증**: `tsc --noEmit` 통과, `npm run build` 성공.

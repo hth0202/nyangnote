@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { getCatMembers, removeCatMember, getOrCreateInviteCode, getCatInviteCode } from '@/lib/db'
+import { PageHeader } from '@/components/layout/PageHeader'
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
 import type { Cat, CatMember, CatInvite } from '@/types'
 import type { User } from 'firebase/auth'
 
@@ -10,13 +11,14 @@ interface Props {
 }
 
 export function GuardianScreen({ cat, user }: Props) {
-  const navigate = useNavigate()
   const [members, setMembers] = useState<CatMember[]>([])
   const [invite, setInvite] = useState<CatInvite | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState('')
   const [generatingCode, setGeneratingCode] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [actionError, setActionError] = useState('')
+  const [removeTarget, setRemoveTarget] = useState<CatMember | null>(null)
 
   const isOwner = members.find(m => m.userId === user.uid)?.role === 'owner'
 
@@ -41,6 +43,7 @@ export function GuardianScreen({ cat, user }: Props) {
 
   const handleGetCode = async () => {
     setGeneratingCode(true)
+    setActionError('')
     try {
       const code = await getOrCreateInviteCode(cat.id, cat.name, user.uid, user.displayName ?? '알 수 없음')
       setInvite({
@@ -51,6 +54,8 @@ export function GuardianScreen({ cat, user }: Props) {
         invitedByName: user.displayName ?? '알 수 없음',
         createdAt: new Date().toISOString(),
       })
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : '초대 코드 생성에 실패했어요')
     } finally {
       setGeneratingCode(false)
     }
@@ -58,7 +63,19 @@ export function GuardianScreen({ cat, user }: Props) {
 
   const handleCopy = async () => {
     if (!invite) return
-    await navigator.clipboard.writeText(invite.code)
+    try {
+      await navigator.clipboard.writeText(invite.code)
+    } catch {
+      // HTTP(비보안 컨텍스트) 등 clipboard API 미지원 환경 폴백
+      const ta = document.createElement('textarea')
+      ta.value = invite.code
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
@@ -67,29 +84,29 @@ export function GuardianScreen({ cat, user }: Props) {
     if (!invite) return
     const text = `${cat.name}의 보호자로 초대합니다!\n냥노트 앱에서 초대 코드를 입력하세요: ${invite.code}`
     if (navigator.share) {
-      await navigator.share({ title: '냥노트 초대', text })
+      try {
+        await navigator.share({ title: '냥노트 초대', text })
+      } catch {
+        // 사용자가 공유 시트를 닫은 경우(AbortError) — 무시
+      }
     } else {
       handleCopy()
     }
   }
 
   const handleRemove = async (memberId: string) => {
-    await removeCatMember(cat.id, memberId)
-    setMembers(prev => prev.filter(m => m.userId !== memberId))
+    setActionError('')
+    try {
+      await removeCatMember(cat.id, memberId)
+      setMembers(prev => prev.filter(m => m.userId !== memberId))
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : '보호자 제거에 실패했어요')
+    }
   }
 
   return (
     <div className="min-h-dvh bg-app-bg pb-24">
-      <div className="px-5 pt-6 pb-4 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all text-xl"
-        >
-          ‹
-        </button>
-        <h1 className="text-xl font-bold text-text-primary">공동 보호자</h1>
-      </div>
+      <PageHeader title="공동 보호자" />
 
       {loading ? (
         <div className="flex items-center justify-center py-20 text-text-secondary text-sm">불러오는 중...</div>
@@ -138,6 +155,12 @@ export function GuardianScreen({ cat, user }: Props) {
             </div>
           )}
 
+          {actionError && (
+            <div className="px-5 mb-4">
+              <p className="text-sm text-error bg-red-50 border border-red-200 rounded-2xl px-4 py-3">{actionError}</p>
+            </div>
+          )}
+
           <div className="px-5">
             <p className="text-xs font-semibold text-text-secondary mb-2 px-1">
               보호자 목록 ({members.length}명)
@@ -161,7 +184,7 @@ export function GuardianScreen({ cat, user }: Props) {
                   {isOwner && member.userId !== user.uid && (
                     <button
                       type="button"
-                      onClick={() => handleRemove(member.userId)}
+                      onClick={() => setRemoveTarget(member)}
                       className="text-xs text-error px-2 py-1 rounded-lg hover:bg-red-50 transition-colors shrink-0"
                     >
                       제거
@@ -173,6 +196,19 @@ export function GuardianScreen({ cat, user }: Props) {
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={removeTarget !== null}
+        message={`${removeTarget?.displayName ?? ''}님을 보호자에서 제거할까요?`}
+        confirmLabel="제거"
+        cancelLabel="취소"
+        onConfirm={() => {
+          const target = removeTarget
+          setRemoveTarget(null)
+          if (target) handleRemove(target.userId)
+        }}
+        onCancel={() => setRemoveTarget(null)}
+      />
     </div>
   )
 }

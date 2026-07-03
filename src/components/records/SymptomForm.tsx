@@ -58,8 +58,11 @@ export function SymptomForm({ onSave, loading, onDirty, initialValues }: Props) 
   const [vomitTiming, setVomitTiming] = useState(iv?.vomitExtra?.timing ?? '')
   const [note, setNote] = useState(initialValues?.note ?? '')
 
+  const dirty = () => onDirty?.()
+
   const toggleContent = (c: string) => {
     setVomitContent(prev => prev.includes(c) ? prev.filter(x => x !== c) : [...prev, c])
+    dirty()
   }
 
   const handleSave = () => {
@@ -78,7 +81,7 @@ export function SymptomForm({ onSave, loading, onDirty, initialValues }: Props) 
 
   return (
     <div className="flex flex-col gap-4">
-      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={setRecordedAt} />
+      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={v => { setRecordedAt(v); dirty() }} />
 
       <SectionLabel>증상</SectionLabel>
       <div className="grid grid-cols-2 gap-2">
@@ -101,7 +104,7 @@ export function SymptomForm({ onSave, loading, onDirty, initialValues }: Props) 
       <SectionLabel>심각도</SectionLabel>
       <div className="flex gap-2">
         {SEVERITY.map(s => (
-          <Chip key={s.value} label={s.label} selected={severity === s.value} onClick={() => setSeverity(s.value)} />
+          <Chip key={s.value} label={s.label} selected={severity === s.value} onClick={() => { setSeverity(s.value); dirty() }} />
         ))}
       </div>
 
@@ -117,20 +120,20 @@ export function SymptomForm({ onSave, loading, onDirty, initialValues }: Props) 
           <SectionLabel>횟수</SectionLabel>
           <div className="flex gap-2">
             {VOMIT_COUNT.map(c => (
-              <Chip key={c.value} label={c.label} selected={vomitCount === c.value} onClick={() => setVomitCount(c.value)} />
+              <Chip key={c.value} label={c.label} selected={vomitCount === c.value} onClick={() => { setVomitCount(c.value); dirty() }} />
             ))}
           </div>
 
           <SectionLabel>식후 발생 여부</SectionLabel>
           <div className="flex flex-wrap gap-2">
             {VOMIT_TIMING.map(t => (
-              <Chip key={t.value} label={t.label} selected={vomitTiming === t.value} onClick={() => setVomitTiming(t.value)} />
+              <Chip key={t.value} label={t.label} selected={vomitTiming === t.value} onClick={() => { setVomitTiming(t.value); dirty() }} />
             ))}
           </div>
         </>
       )}
 
-      <TextArea label="메모" value={note} onChange={setNote} placeholder="추가 메모 (선택)" />
+      <TextArea label="메모" value={note} onChange={v => { setNote(v); dirty() }} placeholder="추가 메모 (선택)" />
 
       <Button size="lg" onClick={handleSave} loading={loading} disabled={!symptomType}>
         저장하기

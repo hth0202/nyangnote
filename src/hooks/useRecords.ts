@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react'
+import { limit } from 'firebase/firestore'
 import { subscribeToRecords, addRecord, updateRecord, deleteRecord } from '@/lib/db'
 import type { HealthRecord, RecordType } from '@/types'
+
+// 기록이 쌓여도 초기 로딩이 느려지지 않도록 구독 범위 제한
+const RECORDS_LIMIT = 500
 
 export function useRecords(catId: string | null) {
   const [records, setRecords] = useState<HealthRecord[]>([])
@@ -9,10 +13,18 @@ export function useRecords(catId: string | null) {
   useEffect(() => {
     if (!catId) { setLoading(false); return }
     setLoading(true)
-    const unsub = subscribeToRecords(catId, [], (recs) => {
-      setRecords(recs)
-      setLoading(false)
-    })
+    const unsub = subscribeToRecords(
+      catId,
+      [limit(RECORDS_LIMIT)],
+      (recs) => {
+        setRecords(recs)
+        setLoading(false)
+      },
+      (err) => {
+        console.error('기록 구독 실패:', err)
+        setLoading(false)
+      }
+    )
     return unsub
   }, [catId])
 
@@ -32,11 +44,6 @@ export function useRecords(catId: string | null) {
   }
 
   return { records, loading, add, update, remove }
-}
-
-export function useTodayRecords(records: HealthRecord[]) {
-  const today = new Date().toDateString()
-  return records.filter(r => new Date(r.recordedAt).toDateString() === today)
 }
 
 export function useLastRecord(records: HealthRecord[], type: RecordType) {

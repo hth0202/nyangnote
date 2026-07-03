@@ -35,6 +35,7 @@ export function WaterForm({ onSave, loading, onDirty, initialValues }: Props) {
   const [mlChip, setMlChip] = useState(iv?.waterAmountMl ? 'custom' : '')
   const [mlCustom, setMlCustom] = useState(iv?.waterAmountMl ? String(iv.waterAmountMl) : '')
   const [note, setNote] = useState(initialValues?.note ?? '')
+  const dirty = () => onDirty?.()
 
   const getMl = () => {
     if (!showMl) return undefined
@@ -57,7 +58,7 @@ export function WaterForm({ onSave, loading, onDirty, initialValues }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={setRecordedAt} />
+      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={v => { setRecordedAt(v); dirty() }} />
 
       <SectionLabel>음수량</SectionLabel>
       <div className="flex flex-col gap-2">
@@ -90,15 +91,16 @@ export function WaterForm({ onSave, loading, onDirty, initialValues }: Props) {
         <>
           <div className="flex flex-wrap gap-2">
             {ML_CHIPS.map(c => (
-              <Chip key={c} label={c} selected={mlChip === c} onClick={() => setMlChip(c)} />
+              <Chip key={c} label={c} selected={mlChip === c} onClick={() => { setMlChip(c); dirty() }} />
             ))}
-            <Chip label="직접 입력" selected={mlChip === 'custom'} onClick={() => setMlChip('custom')} />
+            <Chip label="직접 입력" selected={mlChip === 'custom'} onClick={() => { setMlChip('custom'); dirty() }} />
           </div>
           {mlChip === 'custom' && (
             <input
               type="number"
+              min="0"
               value={mlCustom}
-              onChange={e => setMlCustom(e.target.value)}
+              onChange={e => { setMlCustom(e.target.value); dirty() }}
               placeholder="ml 입력"
               className="px-4 py-3 bg-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-300"
             />
@@ -106,7 +108,7 @@ export function WaterForm({ onSave, loading, onDirty, initialValues }: Props) {
         </>
       )}
 
-      <TextArea label="메모" value={note} onChange={setNote} placeholder="추가 메모 (선택)" />
+      <TextArea label="메모" value={note} onChange={v => { setNote(v); dirty() }} placeholder="추가 메모 (선택)" />
 
       <Button size="lg" onClick={handleSave} loading={loading} disabled={!waterLevel}>
         저장하기

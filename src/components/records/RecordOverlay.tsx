@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog'
+import { IconChevronLeft } from '@/components/ui/Icons'
 import { FoodForm } from './FoodForm'
 import { WaterForm } from './WaterForm'
 import { ToiletForm } from './ToiletForm'
@@ -55,27 +56,21 @@ export function RecordOverlay({ open, onClose, onSave, onUpdate, initialType, ed
   const [saveError, setSaveError] = useState<string | null>(null)
   const [isDirty, setIsDirty] = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
-  const [visible, setVisible] = useState(false)
 
   useEffect(() => {
-    if (open) {
-      setVisible(true)
-      setSaved(false)
-      setIsDirty(false)
-      setSaveError(null)
-      if (editRecord) {
-        setSelectedType(editRecord.type)
-        setStep('form')
-        if (editRecord.type === 'toilet') {
-          setToiletType((editRecord.details as ToiletDetails).toiletType)
-        }
-      } else {
-        setSelectedType(initialType ?? null)
-        setStep(initialType ? (initialType === 'toilet' ? 'toilet_type' : 'form') : 'type')
+    if (!open) return
+    setSaved(false)
+    setIsDirty(false)
+    setSaveError(null)
+    if (editRecord) {
+      setSelectedType(editRecord.type)
+      setStep('form')
+      if (editRecord.type === 'toilet') {
+        setToiletType((editRecord.details as ToiletDetails).toiletType)
       }
     } else {
-      const t = setTimeout(() => setVisible(false), 300)
-      return () => clearTimeout(t)
+      setSelectedType(initialType ?? null)
+      setStep(initialType ? (initialType === 'toilet' ? 'toilet_type' : 'form') : 'type')
     }
   }, [open, initialType, editRecord])
 
@@ -126,18 +121,13 @@ export function RecordOverlay({ open, onClose, onSave, onUpdate, initialType, ed
     return () => { document.body.style.overflow = '' }
   }, [open])
 
-  if (!visible && !open) return null
+  if (!open) return null
 
   const editIV = editRecord ? { recordedAt: editRecord.recordedAt, note: editRecord.note } : undefined
 
   return (
     <>
-      <div
-        className={[
-          'fixed top-0 bottom-0 z-50 w-full max-w-[430px] left-1/2 -translate-x-1/2 bg-app-bg flex flex-col transition-transform duration-300 ease-out',
-          open ? 'translate-y-0' : 'translate-y-full',
-        ].join(' ')}
-      >
+      <div className="fixed top-0 bottom-0 z-50 w-full max-w-[430px] left-1/2 -translate-x-1/2 bg-app-bg flex flex-col">
         {/* Header */}
         <div className="flex items-center gap-3 px-4 pt-6 pb-4 bg-app-bg border-b border-divider flex-shrink-0">
           <button
@@ -145,9 +135,7 @@ export function RecordOverlay({ open, onClose, onSave, onUpdate, initialType, ed
             onClick={handleBack}
             className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all text-text-primary flex-shrink-0"
           >
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path d="M15 18L9 12L15 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
+            <IconChevronLeft size={24} />
           </button>
           <h1 className="text-lg font-bold text-text-primary flex-1">{headerTitle()}</h1>
         </div>

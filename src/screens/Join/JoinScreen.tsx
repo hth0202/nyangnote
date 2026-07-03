@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { IconChevronLeft } from '@/components/ui/Icons'
 import { lookupInviteCode, acceptInviteCode } from '@/lib/db'
 import type { CatInvite } from '@/types'
 import type { User } from 'firebase/auth'
@@ -28,10 +29,15 @@ export function JoinScreen({ user, onJoined }: Props) {
     setLooking(true)
     setError('')
     setInvite(null)
-    const result = await lookupInviteCode(code)
-    if (!result) setError('유효하지 않은 코드예요. 다시 확인해 주세요.')
-    else setInvite(result)
-    setLooking(false)
+    try {
+      const result = await lookupInviteCode(code)
+      if (!result) setError('유효하지 않은 코드예요. 다시 확인해 주세요.')
+      else setInvite(result)
+    } catch {
+      setError('코드 확인에 실패했어요. 네트워크 상태를 확인해 주세요.')
+    } finally {
+      setLooking(false)
+    }
   }
 
   const handleJoin = async () => {
@@ -62,9 +68,10 @@ export function JoinScreen({ user, onJoined }: Props) {
           <button
             type="button"
             onClick={() => navigate(-1)}
-            className="self-start w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 text-xl"
+            className="self-start w-10 h-10 -ml-2 flex items-center justify-center rounded-full hover:bg-gray-100 active:scale-95 transition-all text-text-primary"
+            aria-label="뒤로 가기"
           >
-            ‹
+            <IconChevronLeft size={24} />
           </button>
           <div className="text-4xl">🔑</div>
           <h1 className="text-2xl font-bold text-text-primary">초대 코드 입력</h1>

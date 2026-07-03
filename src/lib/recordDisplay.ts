@@ -6,6 +6,7 @@ export interface RecordInfo {
   tags?: string[]    // 펼쳤을 때 표시 — 부가 태그
   alert?: boolean    // 빨간 배지/테두리
   warning?: boolean  // 노란 배지/테두리
+  quick?: boolean    // 빠른 기록 (상세값 미입력 상태)
 }
 
 const FOOD_TYPE_LABEL: Record<string, string> = {
@@ -22,7 +23,7 @@ const FRACTION_MAP: Record<number, string> = {
 
 function formatAmount(amount: number, unit: string): string {
   if (!amount) return ''
-  const num = FRACTION_MAP[amount] ?? (Number.isInteger(amount) ? String(amount) : String(amount))
+  const num = FRACTION_MAP[amount] ?? String(amount)
   return `${num}${FOOD_UNIT_LABEL[unit] ?? unit}`
 }
 
@@ -73,6 +74,14 @@ const CONSISTENCY_LABEL: Record<string, string> = {
 const CONCERNING_TOILET_TAGS = new Set(['혈뇨', '혈변', '점액', '거품', '탁함', '색이 이상함'])
 
 export function recordInfo(r: HealthRecord): RecordInfo {
+  if (r.isQuick) {
+    if (r.type === 'toilet') {
+      const td = r.details as ToiletDetails
+      return { main: td.toiletType === 'urine' ? '소변' : '대변', detail: '내용을 입력해 주세요', quick: true }
+    }
+    return { main: '내용을 입력해 주세요', quick: true }
+  }
+
   const d = r.details
 
   switch (r.type) {
@@ -148,8 +157,7 @@ export function recordInfo(r: HealthRecord): RecordInfo {
 
       return {
         main: `${typeStr} · ${TOILET_AMOUNT_LABEL[td.amount]}`,
-        detail,
-        tags: conditions.length ? undefined : undefined, // conditions는 detail에 인라인 표시
+        detail, // conditions는 detail에 인라인 표시
         alert: isSeriousConcern || td.amount === 'none',
         warning:
           !isSeriousConcern &&

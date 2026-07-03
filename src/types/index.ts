@@ -28,6 +28,7 @@ export interface CatMember {
   email: string
   photoURL?: string
   joinedAt: string
+  inviteCode?: string  // stored only for Firestore rule verification on join
 }
 
 export interface CatInvite {
@@ -65,6 +66,7 @@ export interface BaseRecord {
   photoUrls?: string[]
   photoMetadata?: PhotoMetadata[]
   note?: string
+  isQuick?: boolean
 }
 
 // Food

@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/hooks/useAuth'
 import { OfflineBanner } from '@/components/layout/OfflineBanner'
+import { PageHeader } from '@/components/layout/PageHeader'
 import type { Cat } from '@/types'
 import type { User } from 'firebase/auth'
 
@@ -22,17 +23,7 @@ export function SettingsScreen({ cat, user }: Props) {
     <div className="min-h-dvh bg-app-bg pb-24">
       <OfflineBanner />
 
-      {/* Header with back button */}
-      <div className="px-5 pt-6 pb-6 flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-gray-100 transition-all text-xl"
-        >
-          ‹
-        </button>
-        <h1 className="text-xl font-bold text-text-primary">설정</h1>
-      </div>
+      <PageHeader title="설정" />
 
       {/* Profile */}
       <div className="px-5 mb-4">

@@ -54,8 +54,11 @@ export function ToiletForm({ initialType, onSave, loading, onDirty, initialValue
   const [count, setCount] = useState<1 | 2 | 3 | null>(iv?.count ?? null)
   const [note, setNote] = useState(initialValues?.note ?? '')
 
+  const dirty = () => onDirty?.()
+
   const toggleTag = (tag: string) => {
     setConditionTags(prev => prev.includes(tag) ? prev.filter(t => t !== tag) : [...prev, tag])
+    dirty()
   }
 
   const handleSave = () => {
@@ -75,7 +78,7 @@ export function ToiletForm({ initialType, onSave, loading, onDirty, initialValue
 
   return (
     <div className="flex flex-col gap-4">
-      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={setRecordedAt} />
+      <DateTimeInput label="날짜 및 시간" value={recordedAt} onChange={v => { setRecordedAt(v); dirty() }} />
 
       <SectionLabel>종류</SectionLabel>
       <div className="flex gap-2">
@@ -113,14 +116,14 @@ export function ToiletForm({ initialType, onSave, loading, onDirty, initialValue
           <SectionLabel>횟수</SectionLabel>
           <div className="flex gap-2">
             {FECES_COUNT.map(c => (
-              <Chip key={c.value} label={c.label} selected={count === c.value} onClick={() => setCount(c.value)} />
+              <Chip key={c.value} label={c.label} selected={count === c.value} onClick={() => { setCount(c.value); dirty() }} />
             ))}
           </div>
 
           <SectionLabel>굳기</SectionLabel>
           <div className="flex flex-wrap gap-2">
             {CONSISTENCY.map(c => (
-              <Chip key={c.value} label={c.label} selected={consistency === c.value} onClick={() => setConsistency(c.value)} />
+              <Chip key={c.value} label={c.label} selected={consistency === c.value} onClick={() => { setConsistency(c.value); dirty() }} />
             ))}
           </div>
         </>
@@ -133,7 +136,7 @@ export function ToiletForm({ initialType, onSave, loading, onDirty, initialValue
         ))}
       </div>
 
-      <TextArea label="메모" value={note} onChange={setNote} placeholder="추가 메모 (선택)" />
+      <TextArea label="메모" value={note} onChange={v => { setNote(v); dirty() }} placeholder="추가 메모 (선택)" />
 
       <Button size="lg" onClick={handleSave} loading={loading} disabled={!amount}>
         저장하기
